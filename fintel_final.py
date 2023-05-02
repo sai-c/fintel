@@ -175,6 +175,146 @@ print(f"Historical stock data for {symbol} saved to {csv_filename}")
 #     return sma;
 # }
 
+"""## The Parallelized CPU Implementation"""
+
+# Commented out IPython magic to ensure Python compatibility.
+# #@title Header File
+# %%cpp -n ParallelCPUFintel.h -s xcode
+# 
+# #ifndef PARALLELCPUFINTEL_H
+# #define PARALLELCPUFINTEL_H
+# 
+# #include "CPUFintel.h"
+# #include <thread>
+# #include <mutex>
+# 
+# class ParallelCPUFintel : public CPUFintel
+# {
+# public:
+#     ParallelCPUFintel(){};
+#     std::vector<float> calculate_sma(const std::vector<DataPoint>& data, int window_size) override;
+#     std::vector<float> calculate_ema(const std::vector<DataPoint>& data, int window_size) override;
+#     std::vector<float> calculate_rsi(const std::vector<DataPoint>& data, int window_size) override;
+#     ~ParallelCPUFintel(){};
+#  
+# private:
+#     void sma_worker(const std::vector<DataPoint>& data, int window_size, size_t start, size_t end, std::vector<float>& result, std::mutex& result_mutex);
+#     void ema_worker(const std::vector<DataPoint>& data, int window_size, size_t start, size_t end, std::vector<float>& result, std::mutex& result_mutex);
+#     void rsi_worker(const std::vector<DataPoint>& data, int window_size, size_t start, size_t end, std::vector<float>& result, std::mutex& result_mutex);
+# 
+# };
+# 
+# #endif
+
+# Commented out IPython magic to ensure Python compatibility.
+# #@title Implementation
+# %%cpp -n ParallelCPUFintel.cpp -s xcode
+# 
+# #include "ParallelCPUFintel.h"
+# 
+# std::vector<float> ParallelCPUFintel::calculate_sma(const std::vector<DataPoint>& data, int window_size) {
+#     std::vector<float> sma(data.size());
+#     std::mutex sma_mutex;
+# 
+#     size_t num_threads = std::thread::hardware_concurrency();
+#     size_t chunk_size = data.size() / num_threads;
+# 
+#     std::vector<std::thread> threads;
+# 
+#     for (size_t i = 0; i < num_threads; i++) {
+#         size_t start = i * chunk_size;
+#         size_t end = (i == num_threads - 1) ? data.size() : start + chunk_size;
+#         threads.emplace_back(&ParallelCPUFintel::sma_worker, this, std::ref(data), window_size, start, end, std::ref(sma), std::ref(sma_mutex));
+#     }
+# 
+#     for (std::thread& t : threads) {
+#         t.join();
+#     }
+# 
+#     return sma;
+# }
+# 
+# std::vector<float> ParallelCPUFintel::calculate_ema(const std::vector<DataPoint>& data, int window_size)
+# {
+#     std::vector<float> ema(data.size());
+#     std::mutex ema_mutex;
+# 
+#     size_t num_threads = std::thread::hardware_concurrency();
+#     size_t chunk_size = data.size() / num_threads;
+# 
+#     std::vector<std::thread> threads;
+# 
+#     for (size_t i = 0; i < num_threads; i++) {
+#         size_t start = i * chunk_size;
+#         size_t end = (i == num_threads - 1) ? data.size() : start + chunk_size;
+#         threads.emplace_back(&ParallelCPUFintel::ema_worker, this, std::ref(data), window_size, start, end, std::ref(ema), std::ref(ema_mutex));
+#     }
+# 
+#     for (std::thread& t : threads) {
+#         t.join();
+#     }
+# 
+#     return ema;
+#  }
+# 
+# std::vector<float> ParallelCPUFintel::calculate_rsi(const std::vector<DataPoint>& data, int window_size)
+# {
+#     // Not implemented because SMA and RSI were very slow anyways
+#     std::vector<float> rsi(data.size());
+#     return rsi;
+# }
+# 
+# void ParallelCPUFintel::sma_worker(const std::vector<DataPoint>& data, int window_size, size_t start, size_t end, std::vector<float>& result, std::mutex& result_mutex) {
+#     float sum = 0;
+# 
+#     if (start == 0) {
+#         for (int i = 0; i < window_size; i++) {
+#             sum += data[i].close;
+#             result[i] = sum / (i + 1);
+#         }
+#         start = window_size;
+#     } else {
+#         for (size_t i = start - window_size; i < start; i++) {
+#             sum += data[i].close;
+#         }
+#     }
+# 
+#     for (size_t i = start; i < end; i++) {
+#         sum += data[i].close - data[i - window_size].close;
+#         float sma_value = sum / window_size;
+# 
+#         std::lock_guard<std::mutex> lock(result_mutex);
+#         result[i] = sma_value;
+#     }
+# }
+# 
+# void ParallelCPUFintel::ema_worker(const std::vector<DataPoint>& data, int window_size, size_t start, size_t end, std::vector<float>& result, std::mutex& result_mutex) {
+#     float multiplier = 2.0f / (window_size + 1);
+#     float previous_ema;
+# 
+#     if (start == 0) {
+#         previous_ema = data[0].close;
+#         result[0] = previous_ema;
+#         start = 1;
+#     } else {
+#         std::lock_guard<std::mutex> lock(result_mutex);
+#         previous_ema = result[start - 1];
+#     }
+# 
+#     for (size_t i = start; i < end; i++) {
+#         float current_ema = (data[i].close - previous_ema) * multiplier + previous_ema;
+#         previous_ema = current_ema;
+# 
+#         std::lock_guard<std::mutex> lock(result_mutex);
+#         result[i] = current_ema;
+#     }
+# }
+# 
+# void ParallelCPUFintel::rsi_worker(const std::vector<DataPoint>& data, int window_size, size_t start, size_t end, std::vector<float>& result, std::mutex& result_mutex) {
+# // Not implemented because SMA and RSI were very slow anyways
+# }
+#
+
 """## The GPU Implementation"""
 
 # Commented out IPython magic to ensure Python compatibility.
@@ -569,6 +709,7 @@ print(f"Historical stock data for {symbol} saved to {csv_filename}")
 # 
 # #include "IFintel.h"
 # #include "CPUFintel.h"
+# #include "ParallelCPUFintel.h"
 # #include "GPUFintel.h"
 # #include "TimedGPUFintel.h"
 # #include "Controller.h"
@@ -583,9 +724,9 @@ print(f"Historical stock data for {symbol} saved to {csv_filename}")
 #     {
 #       std::vector<IFintel::DataPoint> data = getFakeData(num);
 #       if (indicator == "sma")
-#         std::vector<float> sma = fintel->calculate_rsi(data, window_size);
+#         std::vector<float> sma = fintel->calculate_sma(data, window_size);
 #       else if (indicator == "ema")
-#         std::vector<float> ema = fintel->calculate_rsi(data, window_size);
+#         std::vector<float> ema = fintel->calculate_ema(data, window_size);
 #       else if (indicator == "rsi")
 #         std::vector<float> rsi = fintel->calculate_rsi(data, window_size);
 #     }
@@ -593,9 +734,9 @@ print(f"Historical stock data for {symbol} saved to {csv_filename}")
 #       std::vector<IFintel::DataPoint> data = getFakeData(num);
 #       clock_gettime(CLOCK_MONOTONIC,&start);
 #       if (indicator == "sma")
-#         std::vector<float> sma = fintel->calculate_rsi(data, window_size);
+#         std::vector<float> sma = fintel->calculate_sma(data, window_size);
 #       else if (indicator == "ema")
-#         std::vector<float> ema = fintel->calculate_rsi(data, window_size);
+#         std::vector<float> ema = fintel->calculate_ema(data, window_size);
 #       else if (indicator == "rsi")
 #         std::vector<float> rsi = fintel->calculate_rsi(data, window_size);
 #       clock_gettime(CLOCK_MONOTONIC,&end);
@@ -670,6 +811,18 @@ print(f"Historical stock data for {symbol} saved to {csv_filename}")
 #     c1.benchmark("ema");
 #     std::cout << "RSI:\n";
 #     c1.benchmark("rsi");
+# 
+#     std::cout << "-----------------------------------------------------------\n";
+# 
+#     std::cout << "Benchmarking Parallel CPU Implementation E2E\n";
+#     std::shared_ptr<IFintel> parallelCPUFintel = std::make_shared<ParallelCPUFintel>(); 
+#     Controller c5(parallelCPUFintel);
+#     std::cout << "SMA:\n";
+#     c5.benchmark("sma");
+#     std::cout << "EMA:\n";
+#     c5.benchmark("ema");
+#     std::cout << "RSI:\n";
+#     c5.benchmark("rsi");
 # 
 #     std::cout << "-----------------------------------------------------------\n";
 # 
